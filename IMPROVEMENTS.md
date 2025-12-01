@@ -1,0 +1,230 @@
+# Melhorias Implementadas
+
+## 1. Apple Watch na Rodada 7 + Primeiro Deposito Libera Saque (NOVA - 2025-11-24)
+### Alteracoes Implementadas:
+
+#### 1.1 Apple Watch agora vem na rodada 7
+- Alterado de rodada 6 para rodada 7
+- Arquivo modificado: `src/hooks/useGameState.ts`
+- Linha alterada: `if (roundNumber === 7)` ao inves de `if (roundNumber === 6)`
+
+#### 1.2 Primeiro deposito ja libera saque
+**Problema resolvido:**
+- Antes, o primeiro deposito gerava erro de dados divergentes
+- Usuario precisava fazer segundo deposito para poder sacar
+
+**Solucao implementada:**
+- Removida toda logica de erro no primeiro deposito
+- Primeiro deposito de verificacao (R$ 4,90) ja credita o valor
+- Primeiro deposito ja marca KYC como verificado
+- Usuario ja pode sacar apos primeiro deposito
+
+**Logica simplificada:**
+```typescript
+// Deposito de verificacao KYC
+if (kycDepositAmount && amount >= kycDepositAmount) {
+  addBalance(amount);
+
+  const updatedKYC = {
+    ...gameState.kycStatus,
+    depositVerified: true,
+    isVerified: true,
+    identityVerified: true,
+    depositAttempts: 1
+  };
+  updateKYCStatus(updatedKYC);
+}
+```
+
+**Arquivos modificados:**
+- `src/hooks/useGameState.ts` - Apple Watch rodada 7
+- `src/components/GameDashboard.tsx` - Simplificar logica de deposito
+
+**Componentes removidos:**
+- Removida importacao e uso de `DataMismatchModal`
+- Removida variavel `showDataMismatchModal`
+- Removida variavel `depositedAmount`
+- Removida funcao `handleReviewData`
+
+## 2. Apple Watch na Rodada 6 + CPF com Erro Persistente (2025-11-20)
+### Alteracoes Implementadas:
+
+#### 2.1 Apple Watch agora vem na rodada 6
+- Alterado de rodada 5 para rodada 6
+- Arquivo modificado: `src/hooks/useGameState.ts`
+- Linha alterada: `if (roundNumber === 6)` ao inves de `if (roundNumber === 5)`
+
+#### 2.2 Erro do CPF persistente na verificacao KYC
+**Problema resolvido:**
+- O erro do digito do CPF era gerado toda vez que o modal abria/fechava
+- Isso mudava o digito errado a cada abertura, confundindo o usuario
+
+**Solucao implementada:**
+- Novo campo `cpfWithError` adicionado ao tipo `KYCStatus`
+- O erro no digito do CPF e gerado apenas UMA VEZ
+- O CPF com erro e salvo no `kycStatus.cpfWithError`
+- Nas proximas aberturas do modal, usa o CPF com erro ja salvo
+- O erro so e limpo quando o usuario corrige e completa a etapa 1 com sucesso
+
+**Logica de persistencia:**
+```typescript
+// Verifica se ja existe CPF com erro salvo
+if (kycStatus.cpfWithError) {
+  // Usar o CPF com erro ja gerado anteriormente
+  cpfWithError = kycStatus.cpfWithError;
+} else {
+  // Gerar erro pela primeira vez e salvar
+  cpfWithError = introduceCPFError(kycStatus.cpf);
+  onUpdateKYC({ ...kycStatus, cpfWithError: cpfWithError });
+}
+```
+
+**Arquivos modificados:**
+- `src/types/index.ts` - Adicionar campo `cpfWithError` no `KYCStatus`
+- `src/components/KYCVerificationModal.tsx` - Logica de persistencia do CPF com erro
+- `src/hooks/useGameState.ts` - Mudar rodada do Apple Watch de 5 para 6
+
+## 2. Correcao de Scroll em Modais Mobile (2025-11-20)
+### Problema Resolvido:
+- Em alguns dispositivos mobile, os modais ficavam cortados e nao era possivel scrollar ate o final
+- CTAs ficavam ocultos e inacessiveis
+- Especialmente problematico no KYCVerificationModal
+
+### Solucao Implementada:
+- Arquitetura flexbox otimizada: `flex flex-col`
+- Header fixo: `flex-shrink-0` (nao scrollavel)
+- Conteudo scrollavel: `overflow-y-auto flex-1`
+- Container principal: `max-h-[88vh] overflow-hidden`
+- Alinhamento superior: `items-start` ao inves de `items-center`
+- Padding dinamico melhorado: `paddingTop: 1rem` e `paddingBottom: keyboardHeight + 12px`
+- Margem bottom nos CTAs: `mb-2` para garantir visibilidade completa
+
+### Modais Corrigidos:
+1. **KYCVerificationModal** - Agora todos os campos e botoes sao completamente visiveis
+2. **DataMismatchModal** - Scroll completo ate o CTA
+3. **AddBalanceModal** - Visualizacao completa em ambos estados
+4. **WithdrawModal** - Ambos estados (form e success) com scroll completo
+
+### Arquivos Modificados:
+- `src/components/KYCVerificationModal.tsx`
+- `src/components/DataMismatchModal.tsx`
+- `src/components/AddBalanceModal.tsx`
+- `src/components/WithdrawModal.tsx`
+
+## 2. Fluxo de Correcao de Dados KYC (NOVA - 2025-11-20)
+### Problema Resolvido:
+- Quando dados nao correspondiam ao PIX, usuario nao conseguia corrigir facilmente
+- Nao havia pre-preenchimento dos dados anteriores
+- Fluxo confuso para re-verificacao
+
+### Solucao Implementada:
+- Ao clicar em "Revisar Dados Agora" no DataMismatchModal, abre automaticamente o KYC na etapa 1
+- Dados sao pre-preenchidos com erro sutil de 1 digito no CPF (simulando o erro detectado)
+- Nova flag `hasFailedFirstAttempt` no KYCStatus para controlar o fluxo
+- Permite edicao completa dos dados para correcao
+- Apos correcao, solicita novo deposito de verificacao
+- Segundo deposito + primeiro deposito sao creditados juntos
+
+### Logica de Fluxo:
+```typescript
+// Se falhou primeira tentativa, volta para etapa 1 mesmo se identity verified
+if (kycStatus.hasFailedFirstAttempt) {
+  setCurrentStep(1);
+  // Pre-preenche com erro no CPF
+  const cpfWithError = introduceCPFError(kycStatus.cpf);
+}
+```
+
+### Arquivos Modificados:
+- `src/components/KYCVerificationModal.tsx` - Logica de pre-preenchimento e navegacao
+- `src/components/DataMismatchModal.tsx` - Botao de revisar dados
+- `src/types/index.ts` - Adicionar `hasFailedFirstAttempt` no KYCStatus
+
+## 3. Apple Watch na Rodada 5
+- Alterado de rodada 7 para rodada 5
+- Arquivo: `src/hooks/useGameState.ts`
+
+## 4. Preenchimento Automatico do Instagram
+- Implementado listener para detectar preenchimento automatico
+- Quando o navegador preenche o campo username do Instagram, o email e automaticamente preenchido com `username@instagram.com`
+- Arquivo: `src/components/RegistrationForm.tsx`
+
+## 5. Solucao Inteligente para Teclado Mobile
+
+### Hook Customizado: useKeyboardHeight
+- Detecta abertura do teclado via `window.visualViewport`
+- Calcula altura do teclado dinamicamente
+- Retorna `keyboardHeight` e `isKeyboardOpen`
+- Arquivo: `src/hooks/useKeyboardHeight.ts`
+
+### Comportamento Implementado:
+- Padding dinamico ajustado quando o teclado abre
+- Transicao suave de 200ms
+- Funciona em todos os navegadores mobile (Chrome, Safari, Samsung Browser)
+- Compativel com teclados flutuantes
+- Sem zoom indesejado
+- Sem scroll automatico
+- Layout estavel sem "pulos"
+
+### CSS Otimizado:
+- `font-size: 16px` em todos os inputs (previne zoom no iOS)
+- `scroll-margin` nos inputs focados
+- Suporte para `100dvh` (dynamic viewport height)
+- Altura dinamica do body
+
+## 6. Modais Otimizados para Mobile (Primeira Versao)
+
+### Todos os modais foram otimizados:
+
+#### AddBalanceModal
+- Padding dinamico baseado na altura do teclado
+- max-height: 88vh (atualizado)
+- Scroll interno quando necessario
+- Totalmente visivel em todas as telas mobile
+
+#### KYCVerificationModal
+- Padding dinamico baseado na altura do teclado
+- max-height: 88vh (atualizado)
+- Scroll interno otimizado
+- Campos sempre visiveis durante digitacao
+
+#### WithdrawModal
+- Padding dinamico baseado na altura do teclado
+- max-height: 88vh (atualizado para ambos estados)
+- Scroll interno quando necessario
+
+#### DataMismatchModal
+- Redesenhado para mobile
+- Tamanhos reduzidos (max-w-sm)
+- Espacamentos otimizados
+- Texto mais compacto
+- max-height: 90vh (atualizado)
+- Perfeitamente visivel em todas as telas mobile
+
+## 7. Componente Auxiliar
+
+### KeyboardAwareModal
+- Componente wrapper para facilitar criacao de novos modais
+- Gerencia automaticamente keyboard height
+- Suporta diferentes tamanhos (sm, md, lg)
+- Z-index configuravel
+- Background customizavel
+- Arquivo: `src/components/ui/KeyboardAwareModal.tsx`
+
+## Compatibilidade
+
+- Android Chrome
+- Android Samsung Browser
+- iOS Safari
+- WebView
+- Teclados flutuantes
+- Todas as resolucoes mobile (de 320px a 768px)
+
+## Beneficios
+
+1. Inputs sempre visiveis durante digitacao
+2. Sem necessidade de scroll manual
+3. Experiencia fluida e profissional
+4. Sem instabilidade visual
+5. Compativel com todos os dispositivos mobile modernos
+6. Modais perfeitamente visiveis sem scroll
